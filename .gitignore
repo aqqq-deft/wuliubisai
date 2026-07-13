@@ -1,0 +1,52 @@
+# Codex / local analysis files
+/.agents/
+/.codex/
+/.video_tmp/
+/config/
+/tmp/
+/tmp - 副本/
+
+# Large vendor packages kept locally (installers, courses and videos)
+/(M305)酷点机器人-四驱麦轮底盘/
+/STM32主控板（CODBOT-RCU）(1)/
+
+# ROS / CMake build output
+**/build/
+**/install/
+**/log/
+**/cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+
+# Keil / embedded build output
+**/Objects/
+**/Listings/
+**/RTE/
+*.axf
+*.crf
+*.d
+*.dep
+*.lnp
+*.map
+*.o
+*.obj
+*.lst
+*.uvguix.*
+JLinkLog.txt
+
+# IDE and operating-system files
+.idea/
+.vscode/
+.vs/
+*.user
+*.suo
+Thumbs.db
+.DS_Store
+
+# General temporary files
+*.bak
+*.tmp
+*.log
+*~
