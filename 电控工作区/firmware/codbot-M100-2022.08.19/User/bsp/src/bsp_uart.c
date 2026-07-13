@@ -279,10 +279,30 @@ USART_TypeDef *ComToUSARTx(COM_PORT_E _ucPort)
 void comSendBuf(COM_PORT_E _ucPort, uint8_t *_ucaBuf, uint16_t _usLen)
 {
 	UART_T *pUart;
+	uint16_t i;
+	uint32_t timeout;
 
 	pUart = ComToUart(_ucPort);
 	if (pUart == 0)
 	{
+		return;
+	}
+
+	if (_ucPort == COM1)
+	{
+		for (i = 0U; i < _usLen; i++)
+		{
+			timeout = 100000U;
+			while (((USART1->SR & USART_SR_TXE) == 0U) && (timeout > 0U))
+			{
+				timeout--;
+			}
+			if (timeout == 0U)
+			{
+				return;
+			}
+			USART1->DR = _ucaBuf[i];
+		}
 		return;
 	}
 
