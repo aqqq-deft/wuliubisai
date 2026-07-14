@@ -32,14 +32,14 @@ $warn=New-Object Windows.Forms.Label; $warn.Text='底盘必须架空。按住才
 $log=New-Object Windows.Forms.TextBox; $log.Location='20,365'; $log.Size='705,190'; $log.Multiline=$true; $log.ScrollBars='Vertical'; $log.ReadOnly=$true; $log.Font=New-Object Drawing.Font('Consolas',9); $form.Controls.Add($log)
 function Add-Log([string]$t) { $log.AppendText("$(Get-Date -Format 'HH:mm:ss.fff')  $t`r`n") }
 function Send-Frame([byte[]]$f,[bool]$quiet=$false) { if($null-eq $script:Port -or -not $script:Port.IsOpen){return $false}; try{$script:Port.Write($f,0,$f.Length); if(-not $quiet){Add-Log ('TX '+(($f|%{$_.ToString('X2')})-join ' '))}; return $true}catch{Add-Log "发送失败：$($_.Exception.Message)";return $false} }
-function Send-Stop([string]$why) { $script:IsMoving=$false; $script:Motion=@(0,0,0); $f=New-ControlFrame 0 0 0; 1..3|%{[void](Send-Frame $f $true)}; Add-Log "STOP：$why" }
+function Send-Stop([string]$why) { $script:IsMoving=$false; $script:Motion=@(0,0,0); $f=New-ControlFrame 0 0 0; [void](Send-Frame $f $true); Add-Log "STOP：$why" }
 
-function Add-MotionButton($text,$x,$y,$z,$left,$top) {
+function Add-MotionButton([string]$text,[int]$x,[int]$y,[int]$z,[int]$left,[int]$top) {
     $b=New-Object Windows.Forms.Button; $b.Text=$text; $b.Location="$left,$top"; $b.Size='125,48'; $b.Tag=@($x,$y,$z)
-    $b.Add_MouseDown({param($sender,$e); if($null-eq $script:Port -or -not $script:Port.IsOpen){Add-Log '请先连接CH340串口。';return}; $v=[int]$speed.SelectedItem; $w=[int]([double]$angular.SelectedItem*100); $script:Motion=@($sender.Tag[0]*$v,$sender.Tag[1]*$v,$sender.Tag[2]*$w); $script:IsMoving=$true; [void](Send-Frame (New-ControlFrame $script:Motion[0] $script:Motion[1] $script:Motion[2])) })
+    $b.Add_MouseDown({param($sender,$e); if($null-eq $script:Port -or -not $script:Port.IsOpen){Add-Log '请先连接CH340串口。';return}; $v=[int]$speed.SelectedItem; $w=[int]([double]$angular.SelectedItem*100); $dx=[Convert]::ToInt32($sender.Tag[0]); $dy=[Convert]::ToInt32($sender.Tag[1]); $dz=[Convert]::ToInt32($sender.Tag[2]); $script:Motion=@([int]($dx*$v),[int]($dy*$v),[int]($dz*$w)); $script:IsMoving=$true; [void](Send-Frame (New-ControlFrame -X $script:Motion[0] -Y $script:Motion[1] -Z $script:Motion[2])) })
     $b.Add_MouseUp({Send-Stop '松开动作按钮'}); $b.Add_MouseLeave({if($script:IsMoving){Send-Stop '鼠标离开动作按钮'}}); $form.Controls.Add($b)
 }
-Add-MotionButton '前进' 1 0 0 160 145; Add-MotionButton '后退' -1 0 0 160 255; Add-MotionButton '左横移' 0 1 0 25 200; Add-MotionButton '右横移' 0 -1 0 295 200
+Add-MotionButton '前进' 1 0 0 160 145; Add-MotionButton '后退' -1 0 0 160 255; Add-MotionButton '左横移' 0 -1 0 25 200; Add-MotionButton '右横移' 0 1 0 295 200
 Add-MotionButton '原地左转' 0 0 1 455 145; Add-MotionButton '原地右转' 0 0 -1 590 145; Add-MotionButton '前进左转' 1 0 1 455 255; Add-MotionButton '前进右转' 1 0 -1 590 255
 $stop=New-Object Windows.Forms.Button; $stop.Text='急停 / STOP'; $stop.Location='160,200'; $stop.Size='125,48'; $stop.BackColor='IndianRed'; $stop.ForeColor='White'; $stop.Add_Click({Send-Stop '点击急停'}); $form.Controls.Add($stop)
 
@@ -48,9 +48,9 @@ $refresh.Add_Click({Refresh-Ports})
 $connect.Add_Click({
     if($null-ne $script:Port -and $script:Port.IsOpen){Send-Stop '断开串口';$script:Port.Close();$script:Port.Dispose();$script:Port=$null;$connect.Text='连接';$status.Text='未连接';$status.ForeColor='DarkRed';return}
     if($null-eq $portBox.SelectedItem){Add-Log '没有可用串口。';return}; $name=([string]$portBox.SelectedItem -split ' ')[0]
-    try{$script:Port=New-Object IO.Ports.SerialPort($name,115200,'None',8,'One');$script:Port.WriteTimeout=200;$script:Port.Open();$connect.Text='断开';$status.Text="已连接 $name / 115200";$status.ForeColor='DarkGreen';Send-Stop '连接后初始化停车'}catch{if($script:Port){$script:Port.Dispose();$script:Port=$null};Add-Log "连接失败：$($_.Exception.Message)"}
+    try{$script:Port=New-Object IO.Ports.SerialPort($name,115200,'None',8,'One');$script:Port.Handshake='None';$script:Port.DtrEnable=$false;$script:Port.RtsEnable=$false;$script:Port.WriteTimeout=200;$script:Port.Open();$connect.Text='断开';$status.Text="已连接 $name / 115200";$status.ForeColor='DarkGreen';Add-Log '连接成功：未自动发送控制帧，请先观察 LED/C14 15 秒。'}catch{if($script:Port){$script:Port.Dispose();$script:Port=$null};Add-Log "连接失败：$($_.Exception.Message)"}
 })
-$timer=New-Object Windows.Forms.Timer; $timer.Interval=100; $timer.Add_Tick({if($script:IsMoving){[void](Send-Frame (New-ControlFrame $script:Motion[0] $script:Motion[1] $script:Motion[2]) $true)};if($script:Port -and $script:Port.IsOpen -and $script:Port.BytesToRead){$n=$script:Port.BytesToRead;$b=New-Object byte[] $n;[void]$script:Port.Read($b,0,$n);Add-Log ('RX '+(($b|%{$_.ToString('X2')})-join ' '))}});$timer.Start()
+$timer=New-Object Windows.Forms.Timer; $timer.Interval=100; $timer.Add_Tick({if($script:IsMoving){[void](Send-Frame (New-ControlFrame -X ([int]$script:Motion[0]) -Y ([int]$script:Motion[1]) -Z ([int]$script:Motion[2])) $true)};if($script:Port -and $script:Port.IsOpen -and $script:Port.BytesToRead){$n=$script:Port.BytesToRead;$b=New-Object byte[] $n;[void]$script:Port.Read($b,0,$n);Add-Log ('RX '+(($b|%{$_.ToString('X2')})-join ' '))}});$timer.Start()
 $form.Add_Deactivate({if($script:IsMoving){Send-Stop '窗口失去焦点'}})
 $form.Add_FormClosing({try{Send-Stop '关闭工具'}catch{};if($script:Port){try{$script:Port.Close();$script:Port.Dispose()}catch{}}})
 Refresh-Ports; [void]$form.ShowDialog()
