@@ -736,10 +736,11 @@ static void InitHardUart(void)
 	/* 配置波特率、奇偶校验 */
 	bsp_SetUartParam(USART1,  UART1_BAUD, UART_PARITY_NONE, UART_MODE_TX_RX);
 
-	CLEAR_BIT(USART1->SR, USART_SR_TC);   /* 清除TC发送完成标志 */
-    CLEAR_BIT(USART1->SR, USART_SR_RXNE); /* 清除RXNE接收标志 */
+	(void)USART1->SR;   /* 清除TC发送完成标志 */
+    (void)USART1->DR; /* 清除RXNE接收标志 */
 	// USART_CR1_PEIE | USART_CR1_RXNEIE
-	SET_BIT(USART1->CR1, USART_CR1_PEIE | USART_CR1_RXNEIE);	/* 使能PE. RX接受中断 */
+	CLEAR_BIT(USART1->CR1, USART_CR1_PEIE);
+	SET_BIT(USART1->CR1, USART_CR1_RXNEIE);	/* 使能PE. RX接受中断 */
    
 #endif
 
@@ -1142,7 +1143,21 @@ static void UartIRQ(UART_T *_pUart)
 #if UART1_FIFO_EN == 1
 void USART1_IRQHandler(void)
 {
-	UartIRQ(&g_tUart1);
+	uint32_t status = USART1->SR;
+
+	/* Discard UART error bytes and clear the flags via the SR/DR read sequence. */
+	if ((status & (USART_SR_PE | USART_SR_FE | USART_SR_NE | USART_SR_ORE)) != 0U)
+	{
+		volatile uint32_t discard = USART1->DR;
+		(void)discard;
+		return;
+	}
+
+	if ((status & USART_SR_RXNE) != 0U)
+	{
+		uint8_t byte = (uint8_t)USART1->DR;
+		AutoControlCmdParse(byte);
+	}
 }
 #endif
 
