@@ -38,8 +38,6 @@ $script:C7SessionEnabled = $false
 $script:C7ContinuousDirection = 0
 $script:C7ContinuousCommandPulse = $null
 $script:C7ContinuousTickCount = 0
-$script:C7AutoTargetPulse = $null
-$script:C7AutoTargetName = ''
 $script:C7NextQueryTime = [DateTime]::MinValue
 $script:C7ConfigPath = Join-Path $PSScriptRoot 'c7_servo_positions.json'
 $script:C7ConfigLoadMessage = ''
@@ -537,7 +535,7 @@ $c7HoldButton.Enabled = $false
 $c7Group.Controls.Add($c7HoldButton)
 
 $c7SpeedLabel = New-Object Windows.Forms.Label
-$c7SpeedLabel.Text = '连续速度'
+$c7SpeedLabel.Text = '手动速度'
 $c7SpeedLabel.Location = '365,243'
 $c7SpeedLabel.AutoSize = $true
 $c7Group.Controls.Add($c7SpeedLabel)
@@ -599,7 +597,7 @@ foreach ($index in 0..3) {
 }
 
 $c7BottomHint = New-Object Windows.Forms.Label
-$c7BottomHint.Text = '单击连续减小/增加开始，点保持停止。中速约6.75°/s，高速约13.5°/s；记录0位和位置1/2/3后可一键到达。'
+$c7BottomHint.Text = '中/高速只控制手动连续移动；回0位和去位置1/2/3始终使用固件最快速度。四个位置可重新记录覆盖。'
 $c7BottomHint.Location = '15,565'
 $c7BottomHint.Size = '540,45'
 $c7BottomHint.ForeColor = 'DarkOrange'
@@ -748,9 +746,8 @@ function Start-C7Preset {
 }
 
 function Update-C7ContinuousButtons {
-    $manualMove = ($null -eq $script:C7AutoTargetPulse)
-    $c7DecreaseButton.BackColor = if ($manualMove -and $script:C7ContinuousDirection -lt 0) { 'Gold' } else { [Drawing.SystemColors]::Control }
-    $c7IncreaseButton.BackColor = if ($manualMove -and $script:C7ContinuousDirection -gt 0) { 'Gold' } else { [Drawing.SystemColors]::Control }
+    $c7DecreaseButton.BackColor = if ($script:C7ContinuousDirection -lt 0) { 'Gold' } else { [Drawing.SystemColors]::Control }
+    $c7IncreaseButton.BackColor = if ($script:C7ContinuousDirection -gt 0) { 'Gold' } else { [Drawing.SystemColors]::Control }
 }
 
 function Invoke-C7ContinuousTick {
@@ -765,43 +762,18 @@ function Invoke-C7ContinuousTick {
         [int]$script:C7CurrentPulse
     }
     $pulse = Limit-C7Pulse ($basePulse + $script:C7ContinuousDirection)
-    if ($null -ne $script:C7AutoTargetPulse) {
-        if ($script:C7ContinuousDirection -gt 0) {
-            $pulse = [Math]::Min($pulse, [int]$script:C7AutoTargetPulse)
-        } else {
-            $pulse = [Math]::Max($pulse, [int]$script:C7AutoTargetPulse)
-        }
-    }
     if ($pulse -eq $basePulse) {
-        $message = if ($null -ne $script:C7AutoTargetPulse) {
-            "C7已到达$($script:C7AutoTargetName)：$pulse us。"
-        } else {
-            "C7已到安全限幅 $pulse us，连续移动自动停止。"
-        }
         $script:C7ContinuousDirection = 0
         $script:C7ContinuousTickCount = 0
         $script:C7ContinuousCommandPulse = $null
-        $script:C7AutoTargetPulse = $null
-        $script:C7AutoTargetName = ''
         Update-C7ContinuousButtons
         Save-C7LastPulse $pulse
-        Add-Log $message
+        Add-Log "C7已到安全限幅 $pulse us，连续移动自动停止。"
         return
     }
     if (Send-C7Command 2 $pulse "连续移动到 $pulse us" $true) {
         $script:C7ContinuousCommandPulse = $pulse
         $script:C7Config['last_pulse_us'] = $pulse
-        if ($null -ne $script:C7AutoTargetPulse -and $pulse -eq [int]$script:C7AutoTargetPulse) {
-            $finishedName = $script:C7AutoTargetName
-            $script:C7ContinuousDirection = 0
-            $script:C7ContinuousTickCount = 0
-            $script:C7ContinuousCommandPulse = $null
-            $script:C7AutoTargetPulse = $null
-            $script:C7AutoTargetName = ''
-            Update-C7ContinuousButtons
-            Save-C7LastPulse $pulse
-            Add-Log "C7已发送到$finishedName：$pulse us，舵机到位后自动保持。"
-        }
     }
 }
 
@@ -811,8 +783,6 @@ function Start-C7Continuous([int]$Delta) {
         Add-Log 'C7未使能或反馈已超时，不能开始连续移动。'
         return
     }
-    $script:C7AutoTargetPulse = $null
-    $script:C7AutoTargetName = ''
     $script:C7ContinuousDirection = $Delta
     $script:C7ContinuousCommandPulse = [int]$script:C7CurrentPulse
     $script:C7ContinuousTickCount = 0
@@ -830,20 +800,16 @@ function Start-C7AutoMove([int]$TargetPulse, [string]$Name) {
     }
     $target = Limit-C7Pulse $TargetPulse
     $current = [int]$script:C7CurrentPulse
+    Stop-C7Continuous $false
     if ($target -eq $current) {
         Add-Log "C7已经位于$Name：$target us。"
         return
     }
-    $script:C7AutoTargetPulse = $target
-    $script:C7AutoTargetName = $Name
-    $script:C7ContinuousDirection = if ($target -gt $current) { 5 } else { -5 }
-    $script:C7ContinuousCommandPulse = $current
-    $script:C7ContinuousTickCount = 0
-    Update-C7ContinuousButtons
-    Add-Log "C7开始前往$Name：$current -> $target us（$($c7SpeedBox.SelectedItem)）。"
-    Invoke-C7ContinuousTick
+    if (Send-C7Command 2 $target "$Name / $target us（固件最快速度）") {
+        Save-C7LastPulse $target
+        Add-Log "C7已按固件最快速度前往$Name：$current -> $target us。"
+    }
 }
-
 function Stop-C7Continuous([bool]$SendHold) {
     $wasMoving = ($script:C7ContinuousDirection -ne 0)
     $script:C7ContinuousDirection = 0
@@ -852,8 +818,6 @@ function Stop-C7Continuous([bool]$SendHold) {
         Save-C7LastPulse ([int]$script:C7ContinuousCommandPulse)
     }
     $script:C7ContinuousCommandPulse = $null
-    $script:C7AutoTargetPulse = $null
-    $script:C7AutoTargetName = ''
     Update-C7ContinuousButtons
     if ($SendHold -and $script:C7SessionEnabled -and (Test-C7FeedbackFresh)) {
         [void](Send-C7Command 0 0 '保持当前指令脉宽')
