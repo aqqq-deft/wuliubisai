@@ -421,6 +421,11 @@
               <FileType>1</FileType>
               <FilePath>..\..\User\app\src\bucket_control.c</FilePath>
             </File>
+            <File>
+              <FileName>c7_servo_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\User\app\src\c7_servo_control.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

@@ -1,9 +1,9 @@
 #include "includes.h"
 
-static uint16_t s_currentPulse = BUCKET_TRANSPORT_PULSE_US;
-static uint16_t s_targetPulse = BUCKET_TRANSPORT_PULSE_US;
-static BucketState_t s_state = BUCKET_STATE_TRANSPORT_READY;
-static BucketState_t s_targetState = BUCKET_STATE_TRANSPORT_READY;
+static uint16_t s_currentPulse = BUCKET_CALIBRATION_CENTER_PULSE_US;
+static uint16_t s_targetPulse = BUCKET_CALIBRATION_CENTER_PULSE_US;
+static BucketState_t s_state = BUCKET_STATE_STOPPED;
+static BucketState_t s_targetState = BUCKET_STATE_STOPPED;
 static uint8_t s_emergencyLatched = 0U;
 static uint8_t s_updateDivider = 0U;
 
@@ -19,7 +19,7 @@ static void Bucket_SetTarget(uint16_t pulse, BucketState_t movingState, BucketSt
     if(s_emergencyLatched != 0U) return;
 #if BUCKET_ENABLE_MOTION == 0U
     (void)pulse;
-    s_targetPulse = BUCKET_TRANSPORT_PULSE_US;
+    s_targetPulse = s_currentPulse;
     (void)movingState;
     (void)readyState;
     s_targetState = BUCKET_STATE_STOPPED;
@@ -27,17 +27,23 @@ static void Bucket_SetTarget(uint16_t pulse, BucketState_t movingState, BucketSt
     return;
 #else
     s_targetPulse = Bucket_ClampPulse(pulse);
-#endif
     s_targetState = readyState;
     s_state = (s_currentPulse == s_targetPulse) ? readyState : movingState;
+#endif
 }
 
 void Bucket_Init(void)
 {
-    s_currentPulse = Bucket_ClampPulse(BUCKET_TRANSPORT_PULSE_US);
+#if BUCKET_ENABLE_CALIBRATION != 0U
+    s_currentPulse = Bucket_ClampPulse(BUCKET_CALIBRATION_CENTER_PULSE_US);
+    s_state = BUCKET_STATE_STOPPED;
+    s_targetState = BUCKET_STATE_STOPPED;
+#else
+    s_currentPulse = Bucket_ClampPulse(BUCKET_CLOSED_PULSE_US);
+    s_state = BUCKET_STATE_CLOSED;
+    s_targetState = BUCKET_STATE_CLOSED;
+#endif
     s_targetPulse = s_currentPulse;
-    s_state = BUCKET_STATE_TRANSPORT_READY;
-    s_targetState = BUCKET_STATE_TRANSPORT_READY;
     s_emergencyLatched = 0U;
     s_updateDivider = 0U;
     servoSetPluse(BUCKET_SERVO_NUMBER, s_currentPulse);
@@ -73,22 +79,23 @@ void Bucket_HandleCommand(uint8_t command)
                 s_state = BUCKET_STATE_STOPPED;
             }
             break;
-        case BUCKET_COMMAND_LOAD_START:
-            Bucket_SetTarget(BUCKET_DIG_PULSE_US, BUCKET_STATE_MOVING_TO_DIG, BUCKET_STATE_DIG_READY);
+        case BUCKET_COMMAND_OPEN:
+            Bucket_SetTarget(BUCKET_OPEN_PULSE_US, BUCKET_STATE_MOVING_TO_OPEN, BUCKET_STATE_OPEN);
             break;
-        case BUCKET_COMMAND_LOAD_STOP:
-        case BUCKET_COMMAND_UNLOAD_STOP:
-            Bucket_SetTarget(BUCKET_TRANSPORT_PULSE_US, BUCKET_STATE_MOVING_TRANSPORT, BUCKET_STATE_TRANSPORT_READY);
+        case BUCKET_COMMAND_CLOSE:
+            Bucket_SetTarget(BUCKET_CLOSED_PULSE_US, BUCKET_STATE_MOVING_TO_CLOSED, BUCKET_STATE_CLOSED);
             break;
-        case BUCKET_COMMAND_UNLOAD_START:
-            Bucket_SetTarget(BUCKET_DUMP_PULSE_US, BUCKET_STATE_MOVING_TO_DUMP, BUCKET_STATE_DUMP_READY);
+        case BUCKET_COMMAND_RESERVED_3:
+        case BUCKET_COMMAND_RESERVED_4:
             break;
         case BUCKET_COMMAND_RESET:
             s_emergencyLatched = 0U;
-            Bucket_SetTarget(BUCKET_TRANSPORT_PULSE_US, BUCKET_STATE_MOVING_TRANSPORT, BUCKET_STATE_TRANSPORT_READY);
-#if BUCKET_ENABLE_MOTION == 0U
-            s_targetState = BUCKET_STATE_TRANSPORT_READY;
-            s_state = BUCKET_STATE_TRANSPORT_READY;
+#if BUCKET_ENABLE_CALIBRATION != 0U
+            s_targetPulse = Bucket_ClampPulse(BUCKET_CALIBRATION_CENTER_PULSE_US);
+            s_targetState = BUCKET_STATE_STOPPED;
+            s_state = (s_currentPulse == s_targetPulse) ? BUCKET_STATE_STOPPED : BUCKET_STATE_MOVING_TO_CLOSED;
+#else
+            Bucket_SetTarget(BUCKET_CLOSED_PULSE_US, BUCKET_STATE_MOVING_TO_CLOSED, BUCKET_STATE_CLOSED);
 #endif
             break;
         case BUCKET_COMMAND_EMERGENCY_STOP:
@@ -97,6 +104,40 @@ void Bucket_HandleCommand(uint8_t command)
         default:
             break;
     }
+}
+
+void Bucket_HandleCalibrationCommand(uint8_t command)
+{
+#if BUCKET_ENABLE_CALIBRATION != 0U
+    uint16_t nextPulse;
+
+    if(s_emergencyLatched != 0U) return;
+
+    nextPulse = s_targetPulse;
+    switch(command) {
+        case BUCKET_CALIBRATION_HOLD:
+            s_targetPulse = s_currentPulse;
+            s_targetState = BUCKET_STATE_STOPPED;
+            s_state = BUCKET_STATE_STOPPED;
+            break;
+        case BUCKET_CALIBRATION_DECREASE:
+            if(nextPulse > (BUCKET_MIN_PULSE_US + BUCKET_STEP_US)) nextPulse -= BUCKET_STEP_US;
+            else nextPulse = BUCKET_MIN_PULSE_US;
+            s_targetPulse = Bucket_ClampPulse(nextPulse);
+            s_targetState = BUCKET_STATE_STOPPED;
+            break;
+        case BUCKET_CALIBRATION_INCREASE:
+            if(nextPulse < (BUCKET_MAX_PULSE_US - BUCKET_STEP_US)) nextPulse += BUCKET_STEP_US;
+            else nextPulse = BUCKET_MAX_PULSE_US;
+            s_targetPulse = Bucket_ClampPulse(nextPulse);
+            s_targetState = BUCKET_STATE_STOPPED;
+            break;
+        default:
+            break;
+    }
+#else
+    (void)command;
+#endif
 }
 
 void Bucket_EmergencyStop(void)

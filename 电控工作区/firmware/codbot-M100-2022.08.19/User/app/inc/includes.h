@@ -14,6 +14,7 @@
 #include "tool.h"
 #include "competition_config.h"
 #include "bucket_control.h"
+#include "c7_servo_control.h"
 
 typedef struct{
 	uint8_t autoStatus;

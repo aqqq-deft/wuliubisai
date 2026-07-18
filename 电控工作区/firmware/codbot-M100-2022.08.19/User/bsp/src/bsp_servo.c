@@ -61,20 +61,22 @@ void servoSetPluse(uint8_t _num, uint16_t _pluse)
     }
     __HAL_TIM_SET_COMPARE(_timer, _channel,_pluse);
 
-	
-	if(_pluse<=1500)
+	/* Legacy steering feedback belongs to servo 1 only. */
+	if(_num == 1U)
 	{
-        g_feedback_SteerDirection=0;
-		g_feedback_SteerAngle=(uint16_t)((EPS_ZEROVALUE-_pluse)*EPS_RANGE)/(EPS_ZEROVALUE-EPS_LVALUE);
+		if(_pluse<=1500)
+		{
+            g_feedback_SteerDirection=0;
+			g_feedback_SteerAngle=(uint16_t)((EPS_ZEROVALUE-_pluse)*EPS_RANGE)/(EPS_ZEROVALUE-EPS_LVALUE);
 
-	}
-	if(_pluse>1500)
-	{
-		g_feedback_SteerDirection=1;
-		g_feedback_SteerAngle=(uint16_t)((_pluse-EPS_ZEROVALUE)*EPS_RANGE)/(EPS_RVALUE-EPS_ZEROVALUE);
+		}
+		if(_pluse>1500)
+		{
+			g_feedback_SteerDirection=1;
+			g_feedback_SteerAngle=(uint16_t)((_pluse-EPS_ZEROVALUE)*EPS_RANGE)/(EPS_RVALUE-EPS_ZEROVALUE);
+		}
 	}
 
- 
 }
 
 

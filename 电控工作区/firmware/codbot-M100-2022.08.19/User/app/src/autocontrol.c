@@ -47,6 +47,16 @@ void auto_ControlCarCmdHandle()
     {
         Bucket_HandleCommand(g_uartFrame.buf[1]);
     }
+    else if((g_uartFrame.code == BUCKET_UART_CALIBRATION_CODE) && (g_uartFrame.len >= 2U))
+    {
+        Bucket_HandleCalibrationCommand(g_uartFrame.buf[1]);
+    }
+    else if((g_uartFrame.code == C7_SERVO_UART_COMMAND_CODE) && (g_uartFrame.len >= 4U))
+    {
+        uint16_t pulse = ((uint16_t)g_uartFrame.buf[2] << 8) |
+                         (uint16_t)g_uartFrame.buf[3];
+        C7Servo_HandleCommand(g_uartFrame.buf[1], pulse);
+    }
 
 }
 /*
@@ -59,7 +69,6 @@ void auto_ControlCarCmdHandle()
 */
 void auto_ControlCarStop()
 {
-    auto_epsSteerControl(0, 0);
     MotoASetSpeed(0, 0);
     MotoBSetSpeed(0, 0);
     MotoCSetSpeed(0, 0);
